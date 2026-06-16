@@ -1,0 +1,474 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+const PORT = process.env.PORT || 3000;
+
+// Serve static files from the 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Game Rooms Database
+const rooms = {};
+
+// Default Word List for Educational Catch Mind
+const DEFAULT_WORDS = [
+  '사과', '바나나', '컴퓨터', '스마트폰', '호랑이', '독수리', '피아노', '자전거', '도서관',
+  '선생님', '학교', '연필', '지우개', '크레파스', '우산', '아이스크림', '수박', '무지개',
+  '태양', '고양이', '강아지', '축구', '야구', '농구', '텔레비전', '비행기', '자동차',
+  '기차', '경찰관', '소방차', '의사', '우주선', '눈사람', '해바라기', '선풍기'
+];
+
+function generateRoomId() {
+  let roomId;
+  do {
+    roomId = Math.floor(1000 + Math.random() * 9000).toString();
+  } while (rooms[roomId]);
+  return roomId;
+}
+
+function clearRoomInterval(room) {
+  if (room.timerInterval) {
+    clearInterval(room.timerInterval);
+    room.timerInterval = null;
+  }
+}
+
+function startNextTurn(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  clearRoomInterval(room);
+
+  if (room.players.length < 2) {
+    room.gameState = 'LOBBY';
+    room.currentRound = 1;
+    room.currentTurnIndex = 0;
+    room.usedWords = [];
+    io.to(roomId).emit('gameReset', {
+      players: getSanitizedPlayers(room),
+      message: '플레이어 수가 부족하여 게임이 대기실로 돌아갔습니다.'
+    });
+    return;
+  }
+
+  if (room.currentTurnIndex >= room.players.length) {
+    room.currentRound++;
+    room.currentTurnIndex = 0;
+  }
+
+  if (room.currentRound > room.settings.rounds) {
+    endGame(roomId);
+    return;
+  }
+
+  const drawer = room.players[room.currentTurnIndex];
+  if (!drawer) {
+    room.currentTurnIndex = 0;
+    startNextTurn(roomId);
+    return;
+  }
+
+  room.players.forEach(p => {
+    p.hasGuessed = false;
+  });
+
+  room.gameState = 'PLAYING';
+  room.firstGuessedThisTurn = false;
+  room.correctGuessersCount = 0;
+
+  const availableWords = room.settings.wordList.filter(w => !room.usedWords.includes(w));
+  let wordListToUse = availableWords.length > 0 ? availableWords : room.settings.wordList;
+  
+  const randomIndex = Math.floor(Math.random() * wordListToUse.length);
+  const selectedWord = wordListToUse[randomIndex];
+  
+  room.currentWord = selectedWord;
+  room.usedWords.push(selectedWord);
+
+  room.currentTimer = room.settings.timeLimit;
+
+  io.to(roomId).emit('turnStart', {
+    drawerId: drawer.id,
+    drawerNickname: drawer.nickname,
+    totalTime: room.settings.timeLimit,
+    round: room.currentRound,
+    maxRounds: room.settings.rounds,
+    players: getSanitizedPlayers(room)
+  });
+
+  io.to(drawer.id).emit('secretWord', { word: selectedWord });
+
+  room.timerInterval = setInterval(() => {
+    room.currentTimer--;
+    io.to(roomId).emit('timerTick', { remainingTime: room.currentTimer });
+
+    if (room.currentTimer <= 0) {
+      endTurn(roomId, 'TIME_UP');
+    }
+  }, 1000);
+}
+
+function endTurn(roomId, reason) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  clearRoomInterval(room);
+  room.gameState = 'TURN_END';
+
+  io.to(roomId).emit('turnEnd', {
+    word: room.currentWord,
+    reason: reason,
+    players: getSanitizedPlayers(room)
+  });
+
+  room.currentTurnIndex++;
+  setTimeout(() => {
+    if (rooms[roomId]) {
+      startNextTurn(roomId);
+    }
+  }, 5000);
+}
+
+function endGame(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  clearRoomInterval(room);
+  room.gameState = 'GAME_OVER';
+
+  const sortedPlayers = [...room.players].sort((a, b) => b.points - a.points);
+
+  io.to(roomId).emit('gameOver', {
+    players: getSanitizedPlayers(room),
+    rankings: sortedPlayers.map(p => ({ nickname: p.nickname, points: p.points, isHost: p.isHost }))
+  });
+}
+
+function getSanitizedPlayers(room) {
+  return room.players.map(p => ({
+    id: p.id,
+    nickname: p.nickname,
+    points: p.points,
+    isHost: p.isHost,
+    hasGuessed: p.hasGuessed
+  }));
+}
+
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.id}`);
+
+  socket.on('createRoom', ({ nickname }) => {
+    const trimmedNick = nickname.trim().substring(0, 12) || '무명플레이어';
+    const roomId = generateRoomId();
+
+    rooms[roomId] = {
+      roomId: roomId,
+      players: [{
+        id: socket.id,
+        nickname: trimmedNick,
+        points: 0,
+        isHost: true,
+        hasGuessed: false
+      }],
+      gameState: 'LOBBY',
+      settings: {
+        wordList: [...DEFAULT_WORDS],
+        timeLimit: 90,
+        rounds: 3
+      },
+      currentRound: 1,
+      currentTurnIndex: 0,
+      usedWords: [],
+      currentWord: '',
+      currentTimer: 90,
+      timerInterval: null,
+      firstGuessedThisTurn: false,
+      correctGuessersCount: 0
+    };
+
+    socket.join(roomId);
+    socket.roomId = roomId;
+
+    socket.emit('roomCreated', {
+      roomId: roomId,
+      players: getSanitizedPlayers(rooms[roomId]),
+      settings: rooms[roomId].settings
+    });
+  });
+
+  socket.on('joinRoom', ({ roomId, nickname }) => {
+    const idStr = roomId.trim();
+    const room = rooms[idStr];
+
+    if (!room) {
+      socket.emit('errorMsg', { message: '방이 존재하지 않거나 코드가 틀렸습니다.' });
+      return;
+    }
+
+    if (room.gameState !== 'LOBBY') {
+      socket.emit('errorMsg', { message: '이미 게임이 시작되어 들어갈 수 없습니다.' });
+      return;
+    }
+
+    if (room.players.length >= 8) {
+      socket.emit('errorMsg', { message: '방이 가득 찼습니다. (최대 8명)' });
+      return;
+    }
+
+    const trimmedNick = nickname.trim().substring(0, 12) || '무명플레이어';
+
+    const newPlayer = {
+      id: socket.id,
+      nickname: trimmedNick,
+      points: 0,
+      isHost: false,
+      hasGuessed: false
+    };
+
+    room.players.push(newPlayer);
+    socket.join(idStr);
+    socket.roomId = idStr;
+
+    io.to(idStr).emit('playerJoined', {
+      players: getSanitizedPlayers(room)
+    });
+
+    socket.emit('roomJoined', {
+      roomId: idStr,
+      players: getSanitizedPlayers(room),
+      settings: room.settings
+    });
+  });
+
+  socket.on('updateSettings', ({ timeLimit, rounds, wordList }) => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) return;
+
+    if (room.gameState !== 'LOBBY') return;
+
+    const limit = Math.max(60, Math.min(90, parseInt(timeLimit) || 90));
+    const rds = Math.max(1, Math.min(10, parseInt(rounds) || 3));
+    
+    let words = [...DEFAULT_WORDS];
+    if (wordList && Array.isArray(wordList) && wordList.length > 0) {
+      words = wordList.map(w => w.trim()).filter(w => w.length > 0);
+    }
+    if (words.length === 0) {
+      words = [...DEFAULT_WORDS];
+    }
+
+    room.settings.timeLimit = limit;
+    room.settings.rounds = rds;
+    room.settings.wordList = words;
+
+    io.to(roomId).emit('settingsUpdated', { settings: room.settings });
+  });
+
+  socket.on('startGame', () => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) return;
+
+    if (room.gameState !== 'LOBBY') return;
+
+    if (room.players.length < 2) {
+      socket.emit('errorMsg', { message: '게임을 시작하려면 최소 2명의 플레이어가 필요합니다.' });
+      return;
+    }
+
+    room.currentRound = 1;
+    room.currentTurnIndex = 0;
+    room.usedWords = [];
+    room.players.forEach(p => p.points = 0);
+
+    startNextTurn(roomId);
+  });
+
+  socket.on('draw', (drawData) => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room || room.gameState !== 'PLAYING') return;
+
+    const drawer = room.players[room.currentTurnIndex];
+    if (!drawer || drawer.id !== socket.id) return;
+
+    socket.to(roomId).emit('drawSync', drawData);
+  });
+
+  socket.on('clearCanvas', () => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room || room.gameState !== 'PLAYING') return;
+
+    const drawer = room.players[room.currentTurnIndex];
+    if (!drawer || drawer.id !== socket.id) return;
+
+    socket.to(roomId).emit('clearCanvasSync');
+  });
+
+  socket.on('chatMessage', ({ message }) => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+
+    const trimmedMsg = message.trim();
+    if (!trimmedMsg) return;
+
+    if (room.gameState === 'PLAYING') {
+      const drawer = room.players[room.currentTurnIndex];
+      const isDrawer = (drawer && drawer.id === socket.id);
+
+      const cleanMsg = trimmedMsg.replace(/\s+/g, '').toLowerCase();
+      const cleanWord = room.currentWord.replace(/\s+/g, '').toLowerCase();
+
+      if (cleanMsg === cleanWord && !isDrawer && !player.hasGuessed) {
+        player.hasGuessed = true;
+        room.correctGuessersCount++;
+
+        const remainingPercentage = room.currentTimer / room.settings.timeLimit;
+        const guesserScore = Math.max(20, Math.round(remainingPercentage * 100));
+
+        player.points += guesserScore;
+
+        let drawerScore = 0;
+        if (!room.firstGuessedThisTurn) {
+          room.firstGuessedThisTurn = true;
+          drawerScore = guesserScore;
+          if (drawer) {
+            drawer.points += drawerScore;
+          }
+        }
+
+        io.to(roomId).emit('correctGuess', {
+          guesserId: player.id,
+          guesserNickname: player.nickname,
+          guesserScore: guesserScore,
+          drawerId: drawer ? drawer.id : null,
+          drawerNickname: drawer ? drawer.nickname : '',
+          drawerScore: drawerScore,
+          players: getSanitizedPlayers(room)
+        });
+
+        const totalGuessers = room.players.length - 1;
+        if (room.correctGuessersCount >= totalGuessers) {
+          endTurn(roomId, 'ALL_GUESSED');
+        }
+        return;
+      }
+    }
+
+    io.to(roomId).emit('chatBroadcast', {
+      nickname: player.nickname,
+      message: trimmedMsg,
+      senderId: socket.id
+    });
+  });
+
+  socket.on('returnToLobby', () => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) return;
+
+    clearRoomInterval(room);
+    room.gameState = 'LOBBY';
+    room.currentRound = 1;
+    room.currentTurnIndex = 0;
+    room.usedWords = [];
+    room.players.forEach(p => p.points = 0);
+
+    io.to(roomId).emit('gameReset', {
+      players: getSanitizedPlayers(room),
+      message: '호스트가 게임을 대기실로 초기화했습니다.'
+    });
+  });
+
+  socket.on('disconnect', () => {
+    const roomId = socket.roomId;
+    if (!roomId) return;
+
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const playerIndex = room.players.findIndex(p => p.id === socket.id);
+    if (playerIndex === -1) return;
+
+    const player = room.players[playerIndex];
+    const wasHost = player.isHost;
+
+    room.players.splice(playerIndex, 1);
+
+    if (room.players.length === 0) {
+      clearRoomInterval(room);
+      delete rooms[roomId];
+      return;
+    }
+
+    if (wasHost && room.players.length > 0) {
+      room.players[0].isHost = true;
+    }
+
+    io.to(roomId).emit('playerLeft', {
+      players: getSanitizedPlayers(room),
+      leftPlayerNickname: player.nickname
+    });
+
+    if (room.gameState === 'PLAYING') {
+      if (room.currentTurnIndex === playerIndex) {
+        clearRoomInterval(room);
+        io.to(roomId).emit('systemMessage', { text: `출제자(${player.nickname})가 퇴장하여 이번 턴을 종료합니다.` });
+        
+        if (room.currentTurnIndex >= room.players.length) {
+          room.currentTurnIndex = 0;
+          room.currentRound++;
+        }
+        
+        endTurn(roomId, 'DRAWER_LEFT');
+      } else {
+        if (room.players.length < 2) {
+          clearRoomInterval(room);
+          room.gameState = 'LOBBY';
+          io.to(roomId).emit('gameReset', {
+            players: getSanitizedPlayers(room),
+            message: '플레이어 수가 부족하여 게임이 대기실로 돌아갔습니다.'
+          });
+        } else {
+          const totalGuessers = room.players.length - 1;
+          let count = 0;
+          const drawer = room.players[room.currentTurnIndex];
+          room.players.forEach(p => {
+            if (p.hasGuessed && p.id !== (drawer ? drawer.id : null)) {
+              count++;
+            }
+          });
+          room.correctGuessersCount = count;
+
+          if (room.correctGuessersCount >= totalGuessers) {
+            endTurn(roomId, 'ALL_GUESSED');
+          }
+        }
+      }
+    }
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`CatchMind web-ready server running on port ${PORT}`);
+});
