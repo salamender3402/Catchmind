@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실시간 웹 캐치마인드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+KR:wght@300;400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Notification Overlay -->
+    <div id="notification" class="hidden">
+      <div class="notification-content">
+        <span id="notification-message">오류 메시지</span>
+        <button id="btn-notification-close">&times;</button>
+      </div>
+    </div>
+
+    <!-- Intermission Overlay -->
+    <div id="intermission" class="hidden">
+      <div class="intermission-box">
+        <h2 id="intermission-title">라운드 종료</h2>
+        <p id="intermission-word-reveal">정답은 <strong>바나나</strong> 였습니다!</p>
+        <p id="intermission-timer">잠시 후 다음 턴이 시작됩니다... (5)</p>
+      </div>
+    </div>
+
+    <!-- SCREEN 1: LOBBY -->
+    <div id="screen-lobby" class="screen">
+      <div class="lobby-card glass">
+        <div class="lobby-header">
+          <div class="game-logo">🌐🎨</div>
+          <h1>실시간 웹 캐치마인드</h1>
+          <p>어디서나 웹 브라우저만으로 실시간 그림 퀴즈를 즐기세요!</p>
+        </div>
+        
+        <div class="lobby-form">
+          <div class="input-group">
+            <label for="input-nickname">이름 (닉네임)</label>
+            <input type="text" id="input-nickname" placeholder="이름을 입력하세요 (최대 12자)" maxlength="12" required>
+          </div>
+          
+          <hr class="form-divider">
+          
+          <div class="action-section">
+            <button id="btn-create-room" class="btn btn-primary btn-glow">방 만들기</button>
+            
+            <div class="or-separator">또는</div>
+            
+            <div class="join-group">
+              <input type="text" id="input-room-code" placeholder="방 코드 (4자리 숫자)" maxlength="4">
+              <button id="btn-join-room" class="btn btn-secondary">방 참가하기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: WAITING ROOM -->
+    <div id="screen-waiting" class="screen hidden">
+      <div class="waiting-container">
+        <div class="waiting-header glass">
+          <div class="room-info">
+            <span class="room-tag">ROOM CODE</span>
+            <span id="display-room-code" class="room-code">----</span>
+          </div>
+          <h2>게임 대기실</h2>
+          <div class="player-count-badge"><span id="waiting-player-count">1</span> / 8 명</div>
+        </div>
+
+        <div class="waiting-main">
+          <div class="roster-panel glass">
+            <h3>대기 중인 플레이어</h3>
+            <ul id="waiting-player-list" class="player-roster"></ul>
+          </div>
+
+          <div class="settings-panel glass">
+            <h3>게임 설정</h3>
+            
+            <div id="host-settings-area">
+              <div class="settings-group">
+                <label for="host-time-limit">
+                  턴당 시간 제한: <span id="time-limit-value">90</span>초
+                </label>
+                <input type="range" id="host-time-limit" min="60" max="90" step="5" value="90">
+              </div>
+
+              <div class="settings-group">
+                <label for="host-rounds">총 라운드 수</label>
+                <select id="host-rounds">
+                  <option value="1">1 라운드</option>
+                  <option value="2">2 라운드</option>
+                  <option value="3" selected>3 라운드</option>
+                  <option value="4">4 라운드</option>
+                  <option value="5">5 라운드</option>
+                </select>
+              </div>
+
+              <div class="settings-group">
+                <label for="host-word-list">
+                  제시어 목록 (쉼표 또는 줄바꿈으로 구분)
+                </label>
+                <textarea id="host-word-list" rows="6" placeholder="여기에 제시어를 입력하세요."></textarea>
+                <button id="btn-reset-words" class="btn btn-text">기본 단어 세트로 복원</button>
+              </div>
+
+              <div class="settings-actions">
+                <button id="btn-save-settings" class="btn btn-secondary">설정 임시 저장</button>
+                <button id="btn-start-game" class="btn btn-primary btn-glow" disabled>게임 시작</button>
+              </div>
+            </div>
+
+            <div id="client-waiting-message" class="hidden">
+              <div class="waiting-spinner"></div>
+              <p>방장이 게임 설정을 확인하고 있습니다.</p>
+              <p class="sub-text">잠시 후 게임이 시작됩니다!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: GAME PLAY -->
+    <div id="screen-play" class="screen hidden">
+      <div class="play-container">
+        <div class="play-header glass">
+          <div class="round-indicator">
+            <span id="display-round-info">ROUND 1 / 3</span>
+          </div>
+          
+          <div class="word-indicator">
+            <span class="word-label">제시어</span>
+            <span id="display-secret-word" class="word-value">? ? ?</span>
+          </div>
+
+          <div class="timer-section">
+            <div class="timer-icon">⏱️</div>
+            <div class="timer-wrapper">
+              <div id="timer-bar" class="timer-progress" style="width: 100%;"></div>
+            </div>
+            <span id="display-timer-number" class="timer-number">90</span>
+          </div>
+        </div>
+
+        <div class="play-main">
+          <div class="side-player-column" id="players-left-column"></div>
+
+          <div class="canvas-panel glass">
+            <div class="canvas-header">
+              <div class="canvas-title">✍️ SKETCH BOOK</div>
+              <div id="display-drawer-announcement" class="drawer-announcement">김철수 님이 그리는 중...</div>
+            </div>
+            
+            <div class="canvas-wrapper">
+              <div class="canvas-relative-container">
+                <canvas id="paint-canvas" width="680" height="420"></canvas>
+                <div id="canvas-cursor"></div>
+              </div>
+            </div>
+
+            <div id="drawer-tools" class="drawing-tools-bar">
+              <div class="palette">
+                <button class="color-btn active" data-color="#000000" style="background-color: #000000;"></button>
+                <button class="color-btn" data-color="#ff4757" style="background-color: #ff4757;"></button>
+                <button class="color-btn" data-color="#2ed573" style="background-color: #2ed573;"></button>
+                <button class="color-btn" data-color="#1e90ff" style="background-color: #1e90ff;"></button>
+                <button class="color-btn" data-color="#ffa502" style="background-color: #ffa502;"></button>
+                <button class="color-btn" data-color="#8e44ad" style="background-color: #8e44ad;"></button>
+                <button class="color-btn eraser-btn" data-color="#ffffff" title="지우개">🧽</button>
+              </div>
+
+              <div class="brush-size-control">
+                <span>두께</span>
+                <input type="range" id="brush-size" min="2" max="20" value="5">
+                <span id="brush-size-display">5px</span>
+              </div>
+
+              <button id="btn-clear-canvas" class="btn btn-danger">전체 지우기</button>
+            </div>
+          </div>
+
+          <div class="side-player-column" id="players-right-column"></div>
+        </div>
+
+        <div class="play-bottom-chat glass">
+          <div class="chat-header">CHAT & ANSWERS</div>
+          <div id="chat-log" class="chat-messages-container"></div>
+          
+          <form id="chat-form" class="chat-input-bar">
+            <input type="text" id="chat-input" placeholder="정답을 추측하거나 채팅을 입력하세요..." autocomplete="off" required>
+            <button type="submit" id="btn-send-chat" class="btn btn-primary">전송</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: GAME OVER -->
+    <div id="screen-game-over" class="screen hidden">
+      <div class="game-over-card glass">
+        <div class="game-over-header">
+          <div class="cup-logo">🏆</div>
+          <h1>게임 결과</h1>
+          <p>모든 라운드가 종료되었습니다! 최종 순위를 공개합니다.</p>
+        </div>
+
+        <div class="rankings-container">
+          <div id="rankings-podium" class="podium-area"></div>
+          <ul id="rankings-list" class="list-area"></ul>
+        </div>
+
+        <div class="game-over-actions">
+          <div id="host-game-over-actions" class="hidden">
+            <button id="btn-lobby-return" class="btn btn-primary btn-glow">대기실로 돌아가기 (새 게임)</button>
+          </div>
+          <div id="client-game-over-message" class="hidden">
+            <p>호스트가 게임을 대기실로 리셋하기를 기다리고 있습니다...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
