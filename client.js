@@ -18,6 +18,12 @@ let isEraser = false;
 let brushWidth = 5;
 let eraserWidth = 20; // Default eraser size (larger than brush)
 
+// BGM State
+let isBgmPlaying = false;
+const bgmPlayer = new Audio('bgm.mp3');
+bgmPlayer.loop = true;
+bgmPlayer.volume = 0.35; // Default moderate volume
+
 const DEFAULT_WORDS = [
   '사과', '바나나', '컴퓨터', '스마트폰', '호랑이', '독수리', '피아노', '자전거', '도서관',
   '선생님', '학교', '연필', '지우개', '크레파스', '우산', '아이스크림', '수박', '무지개',
@@ -75,6 +81,9 @@ const rankingsList = document.getElementById('rankings-list');
 const hostGameOverActions = document.getElementById('host-game-over-actions');
 const clientGameOverMessage = document.getElementById('client-game-over-message');
 const btnLobbyReturn = document.getElementById('btn-lobby-return');
+
+// BGM Control
+const btnToggleBgm = document.getElementById('btn-toggle-bgm');
 
 const notification = document.getElementById('notification');
 const notificationMessage = document.getElementById('notification-message');
@@ -804,3 +813,34 @@ btnLobbyReturn.addEventListener('click', () => {
     socket.emit('returnToLobby');
   }
 });
+
+// BGM Toggle Interaction
+function toggleBgm() {
+  if (isBgmPlaying) {
+    bgmPlayer.pause();
+    btnToggleBgm.textContent = '🔇';
+    isBgmPlaying = false;
+  } else {
+    bgmPlayer.play().then(() => {
+      btnToggleBgm.textContent = '🔊';
+      isBgmPlaying = true;
+    }).catch(err => {
+      console.log('BGM autoplay blocked by browser:', err);
+      showNotification('화면을 아무 곳이나 클릭한 뒤 음소거(🔇) 버튼을 다시 눌러주세요.');
+    });
+  }
+}
+
+btnToggleBgm.addEventListener('click', toggleBgm);
+
+// Attempt autoplay on first user interaction with the page
+document.body.addEventListener('click', () => {
+  if (!isBgmPlaying && bgmPlayer.paused) {
+    bgmPlayer.play().then(() => {
+      btnToggleBgm.textContent = '🔊';
+      isBgmPlaying = true;
+    }).catch(err => {
+      // Ignore autoplay block silently, user can click BGM icon manually
+    });
+  }
+}, { once: true });
