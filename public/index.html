@@ -10,6 +10,9 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Floating BGM Toggle Button -->
+  <button id="btn-toggle-bgm" class="bgm-btn glass" title="배경음악 켜기/끄기">🔇</button>
+
   <div id="app">
     <!-- Notification Overlay -->
     <div id="notification" class="hidden">
@@ -155,7 +158,10 @@
             </div>
             
             <div class="canvas-wrapper">
-              <canvas id="paint-canvas" width="680" height="420"></canvas>
+              <div class="canvas-relative-container">
+                <canvas id="paint-canvas" width="680" height="420"></canvas>
+                <div id="canvas-cursor"></div>
+              </div>
             </div>
 
             <div id="drawer-tools" class="drawing-tools-bar">

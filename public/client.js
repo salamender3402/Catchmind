@@ -13,6 +13,17 @@ let currentColor = '#000000';
 let currentWidth = 5;
 let turnTotalTime = 90;
 
+// Eraser & Brush Size States
+let isEraser = false;
+let brushWidth = 5;
+let eraserWidth = 20; // Default eraser size (larger than brush)
+
+// BGM State
+let isBgmPlaying = false;
+const bgmPlayer = new Audio('bgm.mp3');
+bgmPlayer.loop = true;
+bgmPlayer.volume = 0.35; // Default moderate volume
+
 const DEFAULT_WORDS = [
   '사과', '바나나', '컴퓨터', '스마트폰', '호랑이', '독수리', '피아노', '자전거', '도서관',
   '선생님', '학교', '연필', '지우개', '크레파스', '우산', '아이스크림', '수박', '무지개',
@@ -62,12 +73,17 @@ const chatInput = document.getElementById('chat-input');
 
 const canvas = document.getElementById('paint-canvas');
 const ctx = canvas.getContext('2d');
+const canvasCursor = document.getElementById('canvas-cursor');
+const canvasWrapper = document.querySelector('.canvas-wrapper');
 
 const rankingsPodium = document.getElementById('rankings-podium');
 const rankingsList = document.getElementById('rankings-list');
 const hostGameOverActions = document.getElementById('host-game-over-actions');
 const clientGameOverMessage = document.getElementById('client-game-over-message');
 const btnLobbyReturn = document.getElementById('btn-lobby-return');
+
+// BGM Control
+const btnToggleBgm = document.getElementById('btn-toggle-bgm');
 
 const notification = document.getElementById('notification');
 const notificationMessage = document.getElementById('notification-message');
@@ -203,6 +219,21 @@ function getCanvasCoordinates(e) {
   }
 }
 
+// Custom Cursor Tracking
+function updateCursorPosition(e) {
+  if (!amIDrawer) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  canvasCursor.style.left = `${x}px`;
+  canvasCursor.style.top = `${y}px`;
+  canvasCursor.style.width = `${currentWidth}px`;
+  canvasCursor.style.height = `${currentWidth}px`;
+  canvasCursor.style.display = 'block';
+}
+
+// Mouse events
 canvas.addEventListener('mousedown', (e) => {
   if (!amIDrawer) return;
   isDrawing = true;
@@ -211,17 +242,18 @@ canvas.addEventListener('mousedown', (e) => {
   prevY = coords.y;
   
   drawLine(prevX, prevY, prevX, prevY, currentColor, currentWidth);
-  socket.emit('draw', { x: prevX, y: prevY, prevX, prevY, color: currentColor, width: currentWidth });
+  socket.emit('draw', { x: prevX, y: prevY, prevX: prevX, prevY: prevY, color: currentColor, width: currentWidth });
 });
 
 canvas.addEventListener('mousemove', (e) => {
+  updateCursorPosition(e);
   if (!isDrawing || !amIDrawer) return;
   const coords = getCanvasCoordinates(e);
   const x = coords.x;
   const y = coords.y;
   
   drawLine(x, y, prevX, prevY, currentColor, currentWidth);
-  socket.emit('draw', { x, y, prevX, prevY, color: currentColor, width: currentWidth });
+  socket.emit('draw', { x: x, y: y, prevX: prevX, prevY: prevY, color: currentColor, width: currentWidth });
   
   prevX = x;
   prevY = y;
@@ -230,8 +262,21 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => { isDrawing = false; });
 canvas.addEventListener('mouseout', () => { isDrawing = false; });
 
+canvas.addEventListener('mouseenter', (e) => {
+  if (amIDrawer) {
+    canvasCursor.style.display = 'block';
+    updateCursorPosition(e);
+  }
+});
+
+canvas.addEventListener('mouseleave', () => {
+  canvasCursor.style.display = 'none';
+});
+
+// Touch events (for tablet and smartphone support)
 canvas.addEventListener('touchstart', (e) => {
   if (!amIDrawer) return;
+  canvasCursor.style.display = 'none';
   e.preventDefault();
   isDrawing = true;
   const coords = getCanvasCoordinates(e);
@@ -239,7 +284,7 @@ canvas.addEventListener('touchstart', (e) => {
   prevY = coords.y;
   
   drawLine(prevX, prevY, prevX, prevY, currentColor, currentWidth);
-  socket.emit('draw', { x: prevX, y: prevY, prevX, prevY, color: currentColor, width: currentWidth });
+  socket.emit('draw', { x: prevX, y: prevY, prevX: prevX, prevY: prevY, color: currentColor, width: currentWidth });
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
@@ -250,7 +295,7 @@ canvas.addEventListener('touchmove', (e) => {
   const y = coords.y;
   
   drawLine(x, y, prevX, prevY, currentColor, currentWidth);
-  socket.emit('draw', { x, y, prevX, prevY, color: currentColor, width: currentWidth });
+  socket.emit('draw', { x: x, y: y, prevX: prevX, prevY: prevY, color: currentColor, width: currentWidth });
   
   prevX = x;
   prevY = y;
@@ -258,23 +303,62 @@ canvas.addEventListener('touchmove', (e) => {
 
 canvas.addEventListener('touchend', () => { isDrawing = false; });
 
+// Palette Color Selection
 document.querySelectorAll('.color-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
-    currentColor = e.target.getAttribute('data-color');
+    
+    const selectedColor = e.target.getAttribute('data-color');
+    currentColor = selectedColor;
+    
+    if (selectedColor === '#ffffff') {
+      isEraser = true;
+      brushSize.value = eraserWidth;
+      brushSizeDisplay.textContent = `${eraserWidth}px`;
+      currentWidth = eraserWidth;
+      canvasCursor.classList.add('eraser-active');
+    } else {
+      isEraser = false;
+      brushSize.value = brushWidth;
+      brushSizeDisplay.textContent = `${brushWidth}px`;
+      currentWidth = brushWidth;
+      canvasCursor.classList.remove('eraser-active');
+    }
   });
 });
 
+// Brush Size Control
 brushSize.addEventListener('input', (e) => {
-  currentWidth = parseInt(e.target.value);
-  brushSizeDisplay.textContent = `${currentWidth}px`;
+  const val = parseInt(e.target.value);
+  currentWidth = val;
+  brushSizeDisplay.textContent = `${val}px`;
+  
+  if (isEraser) {
+    eraserWidth = val;
+  } else {
+    brushWidth = val;
+  }
+  
+  if (canvasCursor.style.display !== 'none') {
+    canvasCursor.style.width = `${val}px`;
+    canvasCursor.style.height = `${val}px`;
+  }
 });
 
+// Clear Canvas Button
 btnClearCanvas.addEventListener('click', () => {
   if (!amIDrawer) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   socket.emit('clearCanvas');
+});
+
+// Keyboard shortcut for clearing canvas (Delete / Backspace)
+document.addEventListener('keydown', (e) => {
+  if (amIDrawer && (e.key === 'Delete' || e.key === 'Backspace')) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    socket.emit('clearCanvas');
+  }
 });
 
 chatForm.addEventListener('submit', (e) => {
@@ -578,18 +662,33 @@ socket.on('turnStart', (data) => {
   timerBar.style.backgroundColor = 'var(--color-success)';
   displayTimerNumber.textContent = turnTotalTime;
   
+  // Reset brush/eraser mode to default on turn start
+  isEraser = false;
+  currentColor = '#000000';
+  currentWidth = brushWidth;
+  brushSize.value = brushWidth;
+  brushSizeDisplay.textContent = `${brushWidth}px`;
+  document.querySelectorAll('.color-btn').forEach(b => {
+    if (b.getAttribute('data-color') === '#000000') b.classList.add('active');
+    else b.classList.remove('active');
+  });
+  canvasCursor.classList.remove('eraser-active');
+  canvasCursor.style.display = 'none';
+
   if (isMeDrawer) {
     displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
     drawerTools.classList.remove('hidden');
     displaySecretWord.textContent = '불러오는 중...';
     chatInput.disabled = true;
     chatInput.placeholder = '그림을 그리는 중에는 정답을 맞출 수 없습니다.';
+    canvasWrapper.classList.add('drawer-active');
   } else {
     displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
     drawerTools.classList.add('hidden');
     displaySecretWord.textContent = '? ? ?';
     chatInput.disabled = false;
     chatInput.placeholder = '정답을 추측하거나 채팅을 입력하세요...';
+    canvasWrapper.classList.remove('drawer-active');
   }
   
   renderPlayerCards(data.players, data.drawerId);
@@ -714,3 +813,34 @@ btnLobbyReturn.addEventListener('click', () => {
     socket.emit('returnToLobby');
   }
 });
+
+// BGM Toggle Interaction
+function toggleBgm() {
+  if (isBgmPlaying) {
+    bgmPlayer.pause();
+    btnToggleBgm.textContent = '🔇';
+    isBgmPlaying = false;
+  } else {
+    bgmPlayer.play().then(() => {
+      btnToggleBgm.textContent = '🔊';
+      isBgmPlaying = true;
+    }).catch(err => {
+      console.log('BGM autoplay blocked by browser:', err);
+      showNotification('화면을 아무 곳이나 클릭한 뒤 음소거(🔇) 버튼을 다시 눌러주세요.');
+    });
+  }
+}
+
+btnToggleBgm.addEventListener('click', toggleBgm);
+
+// Attempt autoplay on first user interaction with the page
+document.body.addEventListener('click', () => {
+  if (!isBgmPlaying && bgmPlayer.paused) {
+    bgmPlayer.play().then(() => {
+      btnToggleBgm.textContent = '🔊';
+      isBgmPlaying = true;
+    }).catch(err => {
+      // Ignore autoplay block silently, user can click BGM icon manually
+    });
+  }
+}, { once: true });

@@ -345,13 +345,9 @@ io.on('connection', (socket) => {
 
         player.points += guesserScore;
 
-        let drawerScore = 0;
-        if (!room.firstGuessedThisTurn) {
-          room.firstGuessedThisTurn = true;
-          drawerScore = guesserScore;
-          if (drawer) {
-            drawer.points += drawerScore;
-          }
+        let drawerScore = guesserScore;
+        if (drawer) {
+          drawer.points += drawerScore;
         }
 
         io.to(roomId).emit('correctGuess', {
@@ -364,10 +360,8 @@ io.on('connection', (socket) => {
           players: getSanitizedPlayers(room)
         });
 
-        const totalGuessers = room.players.length - 1;
-        if (room.correctGuessersCount >= totalGuessers) {
-          endTurn(roomId, 'ALL_GUESSED');
-        }
+        // 방안 3: 단 한 명이라도 정답을 맞추면 즉시 이번 턴 종료
+        endTurn(roomId, 'FIRST_GUESSED');
         return;
       }
     }
