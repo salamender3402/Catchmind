@@ -514,85 +514,74 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (!room) return;
 
-    // 만약 끊어진 유저가 관전자라면
+    // 1. 관전자 퇴장 처리
     if (socket.isSpectator && room.spectators) {
       const specIdx = room.spectators.findIndex(s => s.id === socket.id);
       if (specIdx !== -1) {
         room.spectators.splice(specIdx, 1);
         io.to(roomId).emit('spectatorCountUpdate', { count: room.spectators.length });
-        return; // 관전자 연결 종료 시 플레이어 로직에 영향 주지 않고 리턴
+        return;
       }
     }
 
+    // 2. 플레이어 오프라인 처리 (타이머 없이 계속 유지)
     const player = room.players.find(p => p.id === socket.id);
     if (!player) return;
 
-    // 플레이어를 즉시 제거하지 않고, 연결 오프라인 상태로 30초 대기
     player.connected = false;
-    
-    io.to(roomId).emit('systemMessage', { text: `📢 ${player.nickname} 님의 연결이 일시적으로 끊겼습니다. (30초 동안 재접속 대기)` });
+
+    // 방의 모든 플레이어가 오프라인이면 방 폭파
+    const onlinePlayers = room.players.filter(p => p.connected);
+    if (onlinePlayers.length === 0) {
+      clearRoomInterval(room);
+      delete rooms[roomId];
+      return;
+    }
+
+    // 방장이 튕긴 경우 방장 권한 즉시 양도
+    const wasHost = player.isHost;
+    if (wasHost) {
+      player.isHost = false;
+      const nextHost = room.players.find(p => p.connected);
+      if (nextHost) {
+        nextHost.isHost = true;
+        io.to(roomId).emit('systemMessage', { text: `👑 방장의 연결이 끊겨 ${nextHost.nickname} 님에게 방장 권한이 임시 위임되었습니다.` });
+      }
+    }
+
+    io.to(roomId).emit('systemMessage', { text: `📢 ${player.nickname} 님의 연결이 끊겼습니다. (언제든지 재접속 가능)` });
     io.to(roomId).emit('playerLeft', {
       players: getSanitizedPlayers(room),
       leftPlayerNickname: player.nickname
     });
 
-    player.disconnectTimeout = setTimeout(() => {
-      // 30초 후 최종 퇴장 처리
+    // 게임 진행 중일 때 예외 처리
+    if (room.gameState === 'PLAYING') {
       const playerIndex = room.players.findIndex(p => p.id === player.id);
-      if (playerIndex === -1) return;
-
-      const wasHost = player.isHost;
-      room.players.splice(playerIndex, 1);
-
-      if (room.players.length === 0) {
+      
+      // 튕긴 유저가 현재 출제자(Drawer)인 경우 즉시 턴 폭파하고 다음 턴으로 이양
+      if (room.currentTurnIndex === playerIndex) {
         clearRoomInterval(room);
-        delete rooms[roomId];
-        return;
-      }
-
-      if (wasHost && room.players.length > 0) {
-        // 온라인 상태의 플레이어에게 우선 방장 양도
-        const nextHost = room.players.find(p => p.connected);
-        if (nextHost) {
-          nextHost.isHost = true;
-        } else {
-          room.players[0].isHost = true;
+        io.to(roomId).emit('systemMessage', { text: `🎨 출제자(${player.nickname})의 연결이 끊겨 턴을 강제 종료하고 다음 턴으로 넘어갑니다.` });
+        
+        if (room.currentTurnIndex >= room.players.length) {
+          room.currentTurnIndex = 0;
+          room.currentRound++;
         }
-      }
-
-      io.to(roomId).emit('systemMessage', { text: `📢 ${player.nickname} 님이 최종 퇴장 처리되었습니다.` });
-      io.to(roomId).emit('playerLeft', {
-        players: getSanitizedPlayers(room),
-        leftPlayerNickname: player.nickname
-      });
-
-      if (room.gameState === 'PLAYING') {
-        if (room.currentTurnIndex === playerIndex) {
+        
+        endTurn(roomId, 'DRAWER_LEFT');
+      } else {
+        // 맞추는 사람 인원 부족 시 리셋
+        if (onlinePlayers.length < 2) {
           clearRoomInterval(room);
-          io.to(roomId).emit('systemMessage', { text: `출제자(${player.nickname})가 최종 퇴장하여 이번 턴을 종료합니다.` });
-          
-          if (room.currentTurnIndex >= room.players.length) {
-            room.currentTurnIndex = 0;
-            room.currentRound++;
-          }
-          
-          endTurn(roomId, 'DRAWER_LEFT');
-        } else {
-          const activePlayers = room.players.filter(p => p.connected);
-          if (activePlayers.length < 2) {
-            clearRoomInterval(room);
-            room.gameState = 'LOBBY';
-            io.to(roomId).emit('gameReset', {
-              players: getSanitizedPlayers(room),
-              message: '플레이어 수가 부족하여 게임이 대기실로 돌아갔습니다.'
-            });
-          } else {
-            // 정답 턴 종료 판정 갱신
-            // 1명이라도 맞췄으면 통과 (방안 3)이므로, 퇴장으로 인해 즉시 넘어갈 필요는 없음 (이미 맞췄으면 끝났을 것이고, 안 맞춘 상태에서 나간 것)
-          }
+          room.gameState = 'LOBBY';
+          io.to(roomId).emit('gameReset', {
+            players: getSanitizedPlayers(room),
+            message: '플레이 가능한 인원이 부족하여 게임이 대기실로 돌아갔습니다.'
+          });
         }
       }
-    }, 30000); // 30초 대기
+    }
   });
 });
 
