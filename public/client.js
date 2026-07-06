@@ -90,6 +90,7 @@ const btnToggleBgm = document.getElementById('btn-toggle-bgm');
 const btnSpectateRoom = document.getElementById('btn-spectate-room');
 const spectatorBanner = document.getElementById('spectator-banner');
 const spectatorCounter = document.getElementById('spectator-counter');
+const playRoomCode = document.getElementById('play-room-code');
 
 const notification = document.getElementById('notification');
 const notificationMessage = document.getElementById('notification-message');
@@ -681,6 +682,7 @@ socket.on('systemMessage', (data) => {
 
 socket.on('turnStart', (data) => {
   showScreen('play');
+  playRoomCode.textContent = myRoomId;
   intermission.classList.add('hidden');
   
   turnTotalTime = data.totalTime;
@@ -901,6 +903,7 @@ socket.on('gameRejoined', (data) => {
   isHost = me ? me.isHost : false;
   
   showScreen('play');
+  playRoomCode.textContent = myRoomId;
   intermission.classList.add('hidden');
   
   turnTotalTime = data.totalTime;
