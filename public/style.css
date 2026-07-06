@@ -1170,3 +1170,45 @@ label {
   .canvas-panel { order: 0; }
   #players-right-column { order: 2; }
 }
+
+/* Spectator Mode Styles */
+.btn-spectator {
+  width: 100%;
+  margin-top: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+}
+.btn-spectator:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: var(--text-main);
+  transform: translateY(-2px);
+}
+
+.spectator-banner {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.3) 0%, rgba(6, 182, 212, 0.3) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--border-radius-sm);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  animation: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.spectator-badge {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 3px 8px;
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  color: var(--color-secondary);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
