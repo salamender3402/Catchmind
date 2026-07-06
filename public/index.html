@@ -57,6 +57,8 @@
               <input type="text" id="input-room-code" placeholder="방 코드 (4자리 숫자)" maxlength="4">
               <button id="btn-join-room" class="btn btn-secondary">방 참가하기</button>
             </div>
+            
+            <button id="btn-spectate-room" class="btn btn-spectator">👁️ 관전자로 참여하기</button>
           </div>
         </div>
       </div>
@@ -128,10 +130,12 @@
 
     <!-- SCREEN 3: GAME PLAY -->
     <div id="screen-play" class="screen hidden">
+      <div id="spectator-banner" class="spectator-banner hidden">👀 현재 관전 모드로 참여 중입니다. (그리기 및 정답 입력 불가)</div>
       <div class="play-container">
         <div class="play-header glass">
           <div class="round-indicator">
             <span id="display-round-info">ROUND 1 / 3</span>
+            <span id="spectator-counter" class="spectator-badge hidden">👁️ 관전자 0명</span>
           </div>
           
           <div class="word-indicator">

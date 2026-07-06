@@ -5,6 +5,7 @@ let myRoomId = null;
 let isHost = false;
 let amIDrawer = false;
 let myNickname = '';
+let isSpectator = false; // 관전자 모드 여부 추가
 
 let isDrawing = false;
 let prevX = 0;
@@ -85,6 +86,11 @@ const btnLobbyReturn = document.getElementById('btn-lobby-return');
 // BGM Control
 const btnToggleBgm = document.getElementById('btn-toggle-bgm');
 
+// Spectator Mode Elements
+const btnSpectateRoom = document.getElementById('btn-spectate-room');
+const spectatorBanner = document.getElementById('spectator-banner');
+const spectatorCounter = document.getElementById('spectator-counter');
+
 const notification = document.getElementById('notification');
 const notificationMessage = document.getElementById('notification-message');
 const btnNotificationClose = document.getElementById('btn-notification-close');
@@ -147,6 +153,25 @@ btnJoinRoom.addEventListener('click', () => {
   
   myNickname = nickname;
   socket.emit('joinRoom', { roomId: roomCode, nickname });
+});
+
+btnSpectateRoom.addEventListener('click', () => {
+  const nickname = inputNickname.value.trim();
+  const roomCode = inputRoomCode.value.trim();
+  
+  if (!nickname) {
+    showNotification('이름을 입력해 주세요.');
+    inputNickname.focus();
+    return;
+  }
+  if (!roomCode || roomCode.length !== 4) {
+    showNotification('올바른 4자리 방 코드를 입력해 주세요.');
+    inputRoomCode.focus();
+    return;
+  }
+  
+  myNickname = nickname;
+  socket.emit('joinRoom', { roomId: roomCode, nickname, isSpectator: true });
 });
 
 hostTimeLimit.addEventListener('input', (e) => {
@@ -601,12 +626,21 @@ socket.on('roomCreated', (data) => {
 socket.on('roomJoined', (data) => {
   myRoomId = data.roomId;
   isHost = false;
+  isSpectator = data.isSpectator || false;
   
   displayRoomCode.textContent = myRoomId;
   showScreen('waiting');
   
   hostSettingsArea.classList.add('hidden');
   clientWaitingMessage.classList.remove('hidden');
+  
+  if (isSpectator) {
+    clientWaitingMessage.querySelector('p').textContent = '관전자 모드로 참여 중입니다.';
+    clientWaitingMessage.querySelector('.sub-text').textContent = '게임이 시작되면 자동으로 관전이 시작됩니다.';
+  } else {
+    clientWaitingMessage.querySelector('p').textContent = '방장이 게임 설정을 확인하고 있습니다.';
+    clientWaitingMessage.querySelector('.sub-text').textContent = '잠시 후 게임이 시작됩니다!';
+  }
   
   renderWaitingPlayers(data.players);
 });
@@ -675,13 +709,22 @@ socket.on('turnStart', (data) => {
   canvasCursor.classList.remove('eraser-active');
   canvasCursor.style.display = 'none';
 
-  if (isMeDrawer) {
+  if (isSpectator) {
+    displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
+    drawerTools.classList.add('hidden');
+    displaySecretWord.textContent = '? ? ?';
+    chatInput.disabled = false;
+    chatInput.placeholder = '관전 중입니다. 정답을 맞춰도 점수가 부여되지 않습니다.';
+    canvasWrapper.classList.remove('drawer-active');
+    spectatorBanner.classList.remove('hidden');
+  } else if (isMeDrawer) {
     displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
     drawerTools.classList.remove('hidden');
     displaySecretWord.textContent = '불러오는 중...';
     chatInput.disabled = true;
     chatInput.placeholder = '그림을 그리는 중에는 정답을 맞출 수 없습니다.';
     canvasWrapper.classList.add('drawer-active');
+    spectatorBanner.classList.add('hidden');
   } else {
     displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
     drawerTools.classList.add('hidden');
@@ -689,6 +732,7 @@ socket.on('turnStart', (data) => {
     chatInput.disabled = false;
     chatInput.placeholder = '정답을 추측하거나 채팅을 입력하세요...';
     canvasWrapper.classList.remove('drawer-active');
+    spectatorBanner.classList.add('hidden');
   }
   
   renderPlayerCards(data.players, data.drawerId);
@@ -806,6 +850,9 @@ socket.on('gameReset', (data) => {
   
   renderWaitingPlayers(data.players);
   showNotification(data.message);
+  
+  spectatorBanner.classList.add('hidden');
+  spectatorCounter.classList.add('hidden');
 });
 
 btnLobbyReturn.addEventListener('click', () => {
@@ -844,3 +891,93 @@ document.body.addEventListener('click', () => {
     });
   }
 }, { once: true });
+
+// 18. Game Rejoined (Session recovery)
+socket.on('gameRejoined', (data) => {
+  myRoomId = data.roomId;
+  isSpectator = data.isSpectator || false;
+  
+  const me = data.players.find(p => p.id === socket.id); // 사용 소켓 id 비교
+  isHost = me ? me.isHost : false;
+  
+  showScreen('play');
+  intermission.classList.add('hidden');
+  
+  turnTotalTime = data.totalTime;
+  displayRoundInfo.textContent = `ROUND ${data.currentRound} / ${data.settings.rounds}`;
+  
+  amIDrawer = data.amIDrawer;
+  isDrawing = false;
+  
+  // Clear local canvas
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Restore timer UI
+  const percentage = (data.remainingTime / turnTotalTime) * 100;
+  timerBar.style.width = `${percentage}%`;
+  displayTimerNumber.textContent = data.remainingTime;
+  
+  if (percentage < 25) {
+    timerBar.style.backgroundColor = 'var(--color-danger)';
+  } else if (percentage < 50) {
+    timerBar.style.backgroundColor = 'var(--color-warning)';
+  } else {
+    timerBar.style.backgroundColor = 'var(--color-success)';
+  }
+
+  // Reset drawing settings on reconnect
+  isEraser = false;
+  currentColor = '#000000';
+  currentWidth = brushWidth;
+  brushSize.value = brushWidth;
+  brushSizeDisplay.textContent = `${brushWidth}px`;
+  document.querySelectorAll('.color-btn').forEach(b => {
+    if (b.getAttribute('data-color') === '#000000') b.classList.add('active');
+    else b.classList.remove('active');
+  });
+  canvasCursor.classList.remove('eraser-active');
+  canvasCursor.style.display = 'none';
+
+  if (isSpectator) {
+    displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
+    drawerTools.classList.add('hidden');
+    displaySecretWord.textContent = '? ? ?';
+    chatInput.disabled = false;
+    chatInput.placeholder = '관전 중입니다. 정답을 맞춰도 점수가 부여되지 않습니다.';
+    canvasWrapper.classList.remove('drawer-active');
+    spectatorBanner.classList.remove('hidden');
+  } else if (amIDrawer) {
+    displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
+    drawerTools.classList.remove('hidden');
+    displaySecretWord.textContent = '불러오는 중...';
+    chatInput.disabled = true;
+    chatInput.placeholder = '그림을 그리는 중에는 정답을 맞출 수 없습니다.';
+    canvasWrapper.classList.add('drawer-active');
+    spectatorBanner.classList.add('hidden');
+  } else {
+    displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
+    drawerTools.classList.add('hidden');
+    displaySecretWord.textContent = '? ? ?';
+    chatInput.disabled = false;
+    chatInput.placeholder = '정답을 추측하거나 채팅을 입력하세요...';
+    canvasWrapper.classList.remove('drawer-active');
+    spectatorBanner.classList.add('hidden');
+  }
+  
+  renderPlayerCards(data.players, data.drawerId);
+  
+  showNotification('게임방에 다시 연결되었습니다!');
+  appendChatMessage({
+    message: `📢 게임에 재접속하였습니다.`
+  });
+});
+
+// 19. Spectator Count Update
+socket.on('spectatorCountUpdate', (data) => {
+  if (data.count > 0) {
+    spectatorCounter.classList.remove('hidden');
+    spectatorCounter.textContent = `👁️ 관전자 ${data.count}명`;
+  } else {
+    spectatorCounter.classList.add('hidden');
+  }
+});
