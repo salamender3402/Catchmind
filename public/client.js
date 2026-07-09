@@ -729,6 +729,13 @@ socket.on('turnStart', (data) => {
   canvasCursor.classList.remove('eraser-active');
   canvasCursor.style.display = 'none';
 
+  // 진행자 제어판 토글
+  if (isHost && isSpectator) {
+    hostAdminPanel.classList.remove('hidden');
+  } else {
+    hostAdminPanel.classList.add('hidden');
+  }
+
   if (isSpectator) {
     displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
     drawerTools.classList.add('hidden');
@@ -737,12 +744,6 @@ socket.on('turnStart', (data) => {
     chatInput.placeholder = '관전 중입니다. 정답을 맞춰도 점수가 부여되지 않습니다.';
     canvasWrapper.classList.remove('drawer-active');
     spectatorBanner.classList.remove('hidden');
-  }
-  
-  if (isHost && isSpectator) {
-    hostAdminPanel.classList.remove('hidden');
-  } else {
-    hostAdminPanel.classList.add('hidden');
   } else if (isMeDrawer) {
     displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
     drawerTools.classList.remove('hidden');
@@ -965,6 +966,13 @@ socket.on('gameRejoined', (data) => {
   canvasCursor.classList.remove('eraser-active');
   canvasCursor.style.display = 'none';
 
+  // 진행자 제어판 토글
+  if (isHost && isSpectator) {
+    hostAdminPanel.classList.remove('hidden');
+  } else {
+    hostAdminPanel.classList.add('hidden');
+  }
+
   if (isSpectator) {
     displayDrawerAnnouncement.textContent = `🎨 ${data.drawerNickname} 님이 그리는 중...`;
     drawerTools.classList.add('hidden');
@@ -973,12 +981,6 @@ socket.on('gameRejoined', (data) => {
     chatInput.placeholder = '관전 중입니다. 정답을 맞춰도 점수가 부여되지 않습니다.';
     canvasWrapper.classList.remove('drawer-active');
     spectatorBanner.classList.remove('hidden');
-  }
-  
-  if (isHost && isSpectator) {
-    hostAdminPanel.classList.remove('hidden');
-  } else {
-    hostAdminPanel.classList.add('hidden');
   } else if (amIDrawer) {
     displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
     drawerTools.classList.remove('hidden');
