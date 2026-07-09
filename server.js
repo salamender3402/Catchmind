@@ -44,32 +44,52 @@ function startNextTurn(roomId) {
 
   clearRoomInterval(room);
 
-  if (room.players.length < 2) {
+  // 1. 최소 플레이 가능 인원(연결된 실제 플레이어) 수 확인
+  const activePlayers = room.players.filter(p => p.connected && p.playGame !== false);
+  if (activePlayers.length < 2) {
     room.gameState = 'LOBBY';
     room.currentRound = 1;
     room.currentTurnIndex = 0;
     room.usedWords = [];
     io.to(roomId).emit('gameReset', {
       players: getSanitizedPlayers(room),
-      message: '플레이어 수가 부족하여 게임이 대기실로 돌아갔습니다.'
+      message: '플레이 가능한 실제 플레이어 수가 부족하여 게임이 대기실로 돌아갔습니다.'
     });
     return;
   }
 
-  if (room.currentTurnIndex >= room.players.length) {
-    room.currentRound++;
-    room.currentTurnIndex = 0;
-  }
+  // 2. 출제자 선정이 가능하도록 교사(playGame === false) 및 오프라인 유저 스킵 루프 작동
+  let attempts = 0;
+  while (attempts < room.players.length) {
+    if (room.currentTurnIndex >= room.players.length) {
+      room.currentRound++;
+      room.currentTurnIndex = 0;
+    }
 
-  if (room.currentRound > room.settings.rounds) {
-    endGame(roomId);
-    return;
+    if (room.currentRound > room.settings.rounds) {
+      endGame(roomId);
+      return;
+    }
+
+    const candidate = room.players[room.currentTurnIndex];
+    if (candidate && candidate.playGame !== false && candidate.connected) {
+      break;
+    }
+
+    room.currentTurnIndex++;
+    attempts++;
   }
 
   const drawer = room.players[room.currentTurnIndex];
-  if (!drawer) {
+  if (!drawer || drawer.playGame === false || !drawer.connected) {
+    room.gameState = 'LOBBY';
+    room.currentRound = 1;
     room.currentTurnIndex = 0;
-    startNextTurn(roomId);
+    room.usedWords = [];
+    io.to(roomId).emit('gameReset', {
+      players: getSanitizedPlayers(room),
+      message: '게임 가능한 연결된 플레이어가 없습니다.'
+    });
     return;
   }
 
@@ -141,7 +161,9 @@ function endGame(roomId) {
   clearRoomInterval(room);
   room.gameState = 'GAME_OVER';
 
-  const sortedPlayers = [...room.players].sort((a, b) => b.points - a.points);
+  const sortedPlayers = [...room.players]
+    .filter(p => p.playGame !== false)
+    .sort((a, b) => b.points - a.points);
 
   io.to(roomId).emit('gameOver', {
     players: getSanitizedPlayers(room),
@@ -155,7 +177,9 @@ function getSanitizedPlayers(room) {
     nickname: p.nickname,
     points: p.points,
     isHost: p.isHost,
-    hasGuessed: p.hasGuessed
+    hasGuessed: p.hasGuessed,
+    connected: p.connected,
+    playGame: p.playGame !== false
   }));
 }
 
@@ -175,7 +199,8 @@ io.on('connection', (socket) => {
         isHost: true,
         hasGuessed: false,
         connected: true,
-        disconnectTimeout: null
+        disconnectTimeout: null,
+        playGame: true
       }],
       spectators: [],
       gameState: 'LOBBY',
@@ -328,8 +353,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (room.players.length >= 8) {
-      socket.emit('errorMsg', { message: '방이 가득 찼습니다. (최대 8명)' });
+    if (room.players.filter(p => p.playGame !== false).length >= 8) {
+      socket.emit('errorMsg', { message: '방이 가득 찼습니다. (최대 플레이어 8명)' });
       return;
     }
 
@@ -340,7 +365,8 @@ io.on('connection', (socket) => {
       isHost: false,
       hasGuessed: false,
       connected: true,
-      disconnectTimeout: null
+      disconnectTimeout: null,
+      playGame: true
     };
 
     room.players.push(newPlayer);
@@ -356,6 +382,34 @@ io.on('connection', (socket) => {
       players: getSanitizedPlayers(room),
       settings: room.settings
     });
+  });
+
+  socket.on('togglePlayGame', ({ playGame }) => {
+    const roomId = socket.roomId;
+    if (!roomId) return;
+    const room = rooms[roomId];
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) return;
+    
+    player.playGame = playGame;
+    io.to(roomId).emit('playerJoined', {
+      players: getSanitizedPlayers(room)
+    });
+  });
+
+  socket.on('skipTurn', () => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) return;
+    
+    if (room.gameState === 'PLAYING') {
+      clearRoomInterval(room);
+      io.to(roomId).emit('systemMessage', { text: `👑 진행자가 현재 턴을 건너뛰었습니다.` });
+      endTurn(roomId, 'HOST_SKIPPED');
+    }
   });
 
   socket.on('updateSettings', ({ timeLimit, rounds, wordList }) => {

@@ -111,6 +111,13 @@
                 <textarea id="host-word-list" rows="6" placeholder="여기에 제시어를 입력하세요."></textarea>
                 <button id="btn-reset-words" class="btn btn-text">기본 단어 세트로 복원</button>
               </div>
+              
+              <div class="settings-group toggle-group" id="host-play-game-toggle-area">
+                <label class="checkbox-container">
+                  <input type="checkbox" id="host-play-game-toggle" checked>
+                  <span class="checkbox-label">🎮 게임에 플레이어로 직접 참여 (해제 시 교사 진행자 모드)</span>
+                </label>
+              </div>
 
               <div class="settings-actions">
                 <button id="btn-save-settings" class="btn btn-secondary">설정 임시 저장</button>
@@ -132,6 +139,11 @@
     <div id="screen-play" class="screen hidden">
       <div id="spectator-banner" class="spectator-banner hidden">👀 현재 관전 모드로 참여 중입니다. (그리기 및 정답 입력 불가)</div>
       <div class="play-container">
+        <div id="host-admin-panel" class="host-admin-panel hidden">
+          <span class="admin-title">🛠️ 교사 진행자 도구</span>
+          <button id="btn-admin-skip" class="btn btn-secondary btn-sm">⏭️ 턴 건너뛰기</button>
+          <button id="btn-admin-reset" class="btn btn-danger btn-sm">🛑 게임 강제종료</button>
+        </div>
         <div class="play-header glass">
           <div class="play-room-info">
             <span class="play-room-tag">ROOM CODE</span>

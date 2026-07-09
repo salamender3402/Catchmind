@@ -92,6 +92,13 @@ const spectatorBanner = document.getElementById('spectator-banner');
 const spectatorCounter = document.getElementById('spectator-counter');
 const playRoomCode = document.getElementById('play-room-code');
 
+// Teacher Mode Elements
+const hostPlayGameToggleArea = document.getElementById('host-play-game-toggle-area');
+const hostPlayGameToggle = document.getElementById('host-play-game-toggle');
+const hostAdminPanel = document.getElementById('host-admin-panel');
+const btnAdminSkip = document.getElementById('btn-admin-skip');
+const btnAdminReset = document.getElementById('btn-admin-reset');
+
 const notification = document.getElementById('notification');
 const notificationMessage = document.getElementById('notification-message');
 const btnNotificationClose = document.getElementById('btn-notification-close');
@@ -437,6 +444,7 @@ function renderPlayerCards(players, drawerId) {
     card.className = 'player-card glass';
     if (isDrawer) card.classList.add('active-drawer');
     if (hasGuessed) card.classList.add('guessed-correct');
+    if (p.playGame === false) card.classList.add('moderator-card');
     
     const cardTop = document.createElement('div');
     cardTop.className = 'card-top';
@@ -473,7 +481,10 @@ function renderPlayerCards(players, drawerId) {
     const statusText = document.createElement('div');
     statusText.className = 'card-status-text';
     
-    if (isDrawer) {
+    if (p.playGame === false) {
+      statusText.textContent = '진행 중... (진행자)';
+      statusText.style.color = '#a5b4fc';
+    } else if (isDrawer) {
       statusText.textContent = '그림 그리는 중...';
       statusText.style.color = 'var(--color-primary)';
     } else if (hasGuessed) {
@@ -503,6 +514,7 @@ function renderWaitingPlayers(players) {
     const li = document.createElement('li');
     li.className = 'roster-item';
     if (p.id === myId) li.classList.add('self');
+    if (p.playGame === false) li.classList.add('moderator-tag');
     
     const pName = document.createElement('span');
     pName.className = 'player-name';
@@ -527,7 +539,8 @@ function renderWaitingPlayers(players) {
   });
   
   if (isHost) {
-    btnStartGame.disabled = (players.length < 2);
+    const activePlayCount = players.filter(p => p.playGame !== false).length;
+    btnStartGame.disabled = (activePlayCount < 2);
   }
 }
 
@@ -615,6 +628,8 @@ socket.on('roomCreated', (data) => {
   
   hostSettingsArea.classList.remove('hidden');
   clientWaitingMessage.classList.add('hidden');
+  hostPlayGameToggleArea.classList.remove('hidden');
+  hostPlayGameToggle.checked = true; // reset toggle on create
   
   hostWordList.value = data.settings.wordList.join(', ');
   hostTimeLimit.value = data.settings.timeLimit;
@@ -634,6 +649,7 @@ socket.on('roomJoined', (data) => {
   
   hostSettingsArea.classList.add('hidden');
   clientWaitingMessage.classList.remove('hidden');
+  hostPlayGameToggleArea.classList.add('hidden');
   
   if (isSpectator) {
     clientWaitingMessage.querySelector('p').textContent = '관전자 모드로 참여 중입니다.';
@@ -661,6 +677,8 @@ socket.on('playerLeft', (data) => {
     if (me && me.isHost && !isHost) {
       isHost = true;
       showNotification('이전 방장이 퇴장하여 방장(호스트) 권한을 위임받았습니다.');
+      hostSettingsArea.classList.remove('hidden');
+      hostPlayGameToggleArea.classList.remove('hidden');
     }
   }
 });
@@ -719,6 +737,12 @@ socket.on('turnStart', (data) => {
     chatInput.placeholder = '관전 중입니다. 정답을 맞춰도 점수가 부여되지 않습니다.';
     canvasWrapper.classList.remove('drawer-active');
     spectatorBanner.classList.remove('hidden');
+  }
+  
+  if (isHost && isSpectator) {
+    hostAdminPanel.classList.remove('hidden');
+  } else {
+    hostAdminPanel.classList.add('hidden');
   } else if (isMeDrawer) {
     displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
     drawerTools.classList.remove('hidden');
@@ -949,6 +973,12 @@ socket.on('gameRejoined', (data) => {
     chatInput.placeholder = '관전 중입니다. 정답을 맞춰도 점수가 부여되지 않습니다.';
     canvasWrapper.classList.remove('drawer-active');
     spectatorBanner.classList.remove('hidden');
+  }
+  
+  if (isHost && isSpectator) {
+    hostAdminPanel.classList.remove('hidden');
+  } else {
+    hostAdminPanel.classList.add('hidden');
   } else if (amIDrawer) {
     displayDrawerAnnouncement.textContent = '🎨 내가 그림을 그릴 차례입니다!';
     drawerTools.classList.remove('hidden');
@@ -984,3 +1014,39 @@ socket.on('spectatorCountUpdate', (data) => {
     spectatorCounter.classList.add('hidden');
   }
 });
+
+// 20. Teacher Mode Interaction bindings
+if (hostPlayGameToggle) {
+  hostPlayGameToggle.addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    if (!checked) {
+      const pw = prompt('교사(진행자) 모드를 활성화하려면 비밀번호를 입력하세요.');
+      if (pw === '3402') {
+        isSpectator = true;
+        socket.emit('togglePlayGame', { playGame: false });
+        showNotification('교사(진행자) 모드가 활성화되었습니다. 게임에 직접 참여하지 않습니다.');
+      } else {
+        showNotification('비밀번호가 일치하지 않습니다.');
+        e.target.checked = true;
+      }
+    } else {
+      isSpectator = false;
+      socket.emit('togglePlayGame', { playGame: true });
+      showNotification('플레이 참여 모드로 전환되었습니다.');
+    }
+  });
+}
+
+if (btnAdminSkip) {
+  btnAdminSkip.addEventListener('click', () => {
+    socket.emit('skipTurn');
+  });
+}
+
+if (btnAdminReset) {
+  btnAdminReset.addEventListener('click', () => {
+    if (confirm('정말로 게임을 강제 종료하고 대기실로 돌아가시겠습니까?')) {
+      socket.emit('returnToLobby');
+    }
+  });
+}
