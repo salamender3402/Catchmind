@@ -508,7 +508,7 @@ function renderPlayerCards(players, drawerId) {
 
 function renderWaitingPlayers(players) {
   waitingPlayerList.innerHTML = '';
-  waitingPlayerCount.textContent = players.length;
+  waitingPlayerCount.textContent = players.filter(p => p.playGame !== false).length;
   
   players.forEach(p => {
     const li = document.createElement('li');

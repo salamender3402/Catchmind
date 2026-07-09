@@ -1286,7 +1286,7 @@ label {
   font-size: 0.85rem;
 }
 
-.waiting-player-item.moderator-tag::after {
+.roster-item.moderator-tag::after {
   content: '교사';
   margin-left: 8px;
   padding: 2px 6px;
